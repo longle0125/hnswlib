@@ -1408,5 +1408,32 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         }
         std::cout << "integrity ok, checked " << connections_checked << " connections\n";
     }
+
+    // adding other methods
+    std::vector<tableint> get_neighbors(tableint internal_id, int level) const {
+        std::vector<tableint> result;
+        if (level < 0 || internal_id >= cur_element_count) return result;
+        if (level > element_levels_[internal_id]) return result;
+        linklistsizeint *ll_cur = get_linklist_at_level(internal_id, level);
+        int size = getListCount(ll_cur);
+        tableint *data = (tableint *)(ll_cur + 1);
+        for (int i = 0; i < size; i++) {
+            result.push_back(data[i]);
+        }
+        return result;
+    }
+
+    int get_maxlevel(tableint internal_id) const {
+        if (internal_id >= cur_element_count) return -1;
+        return element_levels_[internal_id];
+    }
+
+    int get_graph_max_level() const {
+        return maxlevel_;
+    }
+
+    tableint get_enterpoint_node() const {
+        return enterpoint_node_;
+    }
 };
 }  // namespace hnswlib

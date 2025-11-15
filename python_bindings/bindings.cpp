@@ -181,6 +181,75 @@ class Index {
         default_ef = 10;
     }
 
+     // Hàm wrapper để lấy max level của một phần tử
+    int get_element_max_level(hnswlib::labeltype label) {
+        // Đảm bảo an toàn khi đọc map label_lookup_
+        std::unique_lock <std::mutex> lock(appr_alg->label_lookup_lock);
+        auto search = appr_alg->label_lookup_.find(label);
+        if (search == appr_alg->label_lookup_.end()) {
+            throw std::runtime_error("Label not found");
+        }
+        hnswlib::tableint internal_id = search->second;
+        lock.unlock(); // Mở khóa ngay sau khi không cần nữa
+
+        // Gọi hàm get_maxlevel bạn đã viết trong hnswalg.h
+        return appr_alg->get_maxlevel(internal_id);
+    }
+
+    // Hàm wrapper để lấy danh sách hàng xóm
+    std::vector<hnswlib::labeltype> get_element_neighbors(hnswlib::labeltype label, int level) {
+        // Tìm internal ID từ external label
+        hnswlib::tableint internal_id;
+        {
+            std::unique_lock <std::mutex> lock(appr_alg->label_lookup_lock);
+            auto search = appr_alg->label_lookup_.find(label);
+            if (search == appr_alg->label_lookup_.end()) {
+                throw std::runtime_error("Label not found");
+            }
+            internal_id = search->second;
+        } // Khóa tự động được giải phóng ở đây
+
+        // Gọi hàm get_neighbors bạn đã viết trong hnswalg.h
+        std::vector<hnswlib::tableint> internal_neighbors = appr_alg->get_neighbors(internal_id, level);
+
+        // Chuyển đổi danh sách internal_id của hàng xóm thành external label
+        std::vector<hnswlib::labeltype> external_neighbors;
+        external_neighbors.reserve(internal_neighbors.size());
+        for (hnswlib::tableint neighbor_internal_id : internal_neighbors) {
+            external_neighbors.push_back(appr_alg->getExternalLabel(neighbor_internal_id));
+        }
+        
+        return external_neighbors;
+    }
+
+     // Hàm wrapper để lấy max level của toàn bộ đồ thị
+    int get_graph_max_level() {
+        if (!index_inited) {
+            // Nếu index chưa được khởi tạo, trả về -1
+            return -1;
+        }
+        // Gọi hàm get_graph_max_level() bạn vừa viết trong hnswalg.h
+        return appr_alg->get_graph_max_level();
+    }
+
+    // Hàm wrapper để lấy label của entry point
+    py::object get_entry_point_label() {
+        if (!index_inited) {
+            return py::none(); // Trả về None nếu index chưa được khởi tạo
+        }
+        
+        // Lấy internal id của entry point
+        hnswlib::tableint entry_point_id = appr_alg->get_enterpoint_node();
+
+        if (entry_point_id == -1) {
+            return py::none(); // Trả về None nếu đồ thị rỗng
+        }
+
+        // Chuyển internal id sang external label và trả về
+        return py::cast(appr_alg->getExternalLabel(entry_point_id));
+    }
+
+
 
     ~Index() {
         delete l2space;
@@ -953,6 +1022,31 @@ PYBIND11_PLUGIN(hnswlib) {
         .def_readonly("space", &Index<float>::space_name)
         .def_readonly("dim", &Index<float>::dim)
         .def_readwrite("num_threads", &Index<float>::num_threads_default)
+        // Bindings new method
+
+         .def("get_graph_max_level", [](Index<float>& index) {
+            if (!index.index_inited) return -1;
+            return index.appr_alg->maxlevel_;
+        }, "Trả về tầng cao nhất của toàn bộ đồ thị HNSW.")
+
+        // Lấy max level của một phần tử cụ thể
+        .def("get_element_max_level", &Index<float>::get_element_max_level,
+            py::arg("label"),
+            "Trả về tầng cao nhất (max level) của một phần tử theo label của nó.")
+            
+        // Lấy danh sách hàng xóm của một phần tử tại một tầng
+        .def("get_neighbors", &Index<float>::get_element_neighbors,
+            py::arg("label"), py::arg("level"),
+            "Trả về danh sách các label hàng xóm của một phần tử tại một tầng nhất định.")
+        
+            // Lấy max level của toàn bộ đồ thị
+        .def("get_graph_max_level", &Index<float>::get_graph_max_level,
+            "Trả về tầng cao nhất của toàn bộ đồ thị HNSW.")
+
+         // Lấy label của entry point
+        .def("get_entry_point_label", &Index<float>::get_entry_point_label,
+            "Trả về label của điểm vào (entry point) hiện tại của đồ thị.")
+        // End
         .def_property("ef",
           [](const Index<float> & index) {
             return index.index_inited ? index.appr_alg->ef_ : index.default_ef;
